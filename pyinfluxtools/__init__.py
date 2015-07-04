@@ -83,6 +83,8 @@ class Write(object):
         Traceback (most recent call last):
         ...
         ValueError: invalid literal for int() with base 10: '1231abcdef123'
+        >>> print(Write.parse('cpu field="hello World"'))
+        null
         """
         def unescape(string):
             return re.sub(r'(?<!\\)([\\,=])', '', string)
