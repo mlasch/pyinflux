@@ -11,7 +11,7 @@ setup(name='pyinfluxtools',
     packages = ['pyinfluxtools'],
 #    url='https://github.com/',
 #    scripts=[],
-#    install_requires=[],
+    install_requires=['funcparserlib==0.3.6'],
     classifiers = [
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
