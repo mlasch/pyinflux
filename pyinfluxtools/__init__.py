@@ -2,40 +2,35 @@
 import re
 import sys
 
-from pprint import pprint
-from funcparserlib.lexer import make_tokenizer, Token, LexerError
-from funcparserlib.parser import (some, a, maybe, many, finished, skip)
-
-
+from funcparserlib.lexer import make_tokenizer
+from funcparserlib.parser import (some, maybe, many, finished, skip, NoParseError)
 
 
 class WriteRequest(object):
+
     @staticmethod
     def parse(lines):
         """
         Parse multiple Write objects separeted by new-line character.
 
-        >> lines = []
-        >> lines += ['cpu']
-        >> lines += ['cpu,host=serverA,region=us-west']
-        >> lines += ['cpu,host=serverA,region=us-west field1=1,field2=2']
-        >> lines += ['cpu,host=serverA,region=us-west field1=1,field2=2 1234']
-        >> print("\\n".join(map(str, WriteRequest.parse("\\n".join(lines)))))
-        cpu
-        cpu,host="serverA",region="us-west"
+        >>> print(Write.parse("foo b=1"))
+        foo b=1
+
+        >>> lines = []
+        >>> lines += ['cpu field=123']
+        >>> lines += ['cpu,host=serverA,region=us-west field1=1,field2=2']
+        >>> lines += ['cpu,host=serverA,region=us-west field1=1,field2=2 1234']
+        >>> print("\\n".join(map(str, WriteRequest.parse("\\n".join(lines)))))
+        cpu field=123
         cpu,host="serverA",region="us-west" field1=1,field2=2
         cpu,host="serverA",region="us-west" field1=1,field2=2 1234
         """
         writes = map(Write.parse, lines.split("\n"))
         return list(writes)
 
-    @staticmethod
-    def parseFile(file):
-        for line in file.readlines():
-            yield Write.parse(line)
-
 
 class Write(object):
+
     def __init__(self, key, tags, fields, timestamp=None):
         self.key = key
         self.tags = tags
@@ -48,22 +43,21 @@ class Write(object):
         if isinstance(self.fields, dict):
             self.fields = self.fields.items()
 
-    @staticmethod
-    def tokenize(str):
-        specs = [ 
-            ('Comma', (r',',)),
-            ('Space', (r' ',)),
-            ('Equal', (r'=',)),
-            ('Quote', (r'"',)),
-            ('Escape', (r'\\',)),
-            ('Int', (r'[0-9]+',)),
-            ('Float', (r'-?(\.[0-9]+)|([0-9]+(\.[0-9]*)?)',)),
-            ('Text', (r'[A-Za-z\200-\377_0-9-\.]+',)),
-        ]   
-        useless = [] #'Comma', 'NL', 'Space', 'Header', 'Footer']
-        t = make_tokenizer(specs)
-        return [x for x in t(str) if x.type not in useless]
+    specs = [
+        ('Comma', (r',',)),
+        ('Space', (r' ',)),
+        ('Equal', (r'=',)),
+        ('Quote', (r'"',)),
+        ('Escape', (r'\\',)),
+        ('Int', (r'[0-9]+',)),
+        ('Float', (r'-?(\.[0-9]+)|([0-9]+(\.[0-9]*)?)',)),
+        ('Char', (r'.',)),
+    ]
 
+    @staticmethod
+    def tokenize(line):
+        tokenizer = make_tokenizer(Write.specs)
+        return list(tokenizer(line))
 
     @staticmethod
     def parse(line):
@@ -91,7 +85,7 @@ class Write(object):
         >>> Write.parse('cpu host=server\\ A,region=us\\ west')
         <Write key=cpu tags=[] fields=[('host', 'server A'), ('region', 'us west')] timestamp=None>
 
-        >>> Write.parse('cpu ho\=st=server\ A,region=us\ west')
+        >>> Write.parse('cpu ho\\=st=server\ A,region=us\ west')
         <Write key=cpu tags=[] fields=[('ho=st', 'server A'), ('region', 'us west')] timestamp=None>
 
         >>> print(Write.parse('cpu ho\=st=server\ A,region=us\ west'))
@@ -109,10 +103,10 @@ class Write(object):
         >>> print(Write.parse('cpu field12=12 123123123'))
         cpu field12=12 123123123
 
-        >> print(Write.parse('cpu field12=12 1231abcdef123'))
-        Traceback (most recent call last):
-        ...
-        funcparserlib.parser.NoParseError: should have reached <EOF>: 1,20-1,28: Text 'abcdef123'
+        >>> try:
+        ...     print(Write.parse('cpu field12=12 1231abcdef123'))
+        ... except NoParseError:
+        ...     pass
 
         >>> print(Write.parse("cpu,x=3,y=4,z=6 field\ name=\\"HH \\\\\\"World\\",x=asdf\\\\ foo"))
         cpu,x=3,y=4,z=6 field\\ name="HH \\"World",x="asdf foo"
@@ -129,37 +123,72 @@ class Write(object):
         >>> Write.parse('"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\\\="string field value, only \\\\" need be quoted"')
         <Write key="measurement with quotes" tags=[('tag key with spaces', 'tag,value,with"commas"')] fields=[('field_key\\\\', 'string field value, only " need be quoted')] timestamp=None>
 
-        #>>> Write.parse('disk_free value=442221834240,working\ directories="C:\My Documents\Stuff for examples,C:\My Documents"')
-        #Fails....  this format is just crazy
+        >>> Write.parse('disk_free value=442221834240,working\ directories="C:\My Documents\Stuff for examples,C:\My Documents"')
+        <Write key=disk_free tags=[] fields=[('value', 442221834240), ('working directories', 'C:\\\\My Documents\\\\Stuff for examples,C:\\\\My Documents')] timestamp=None>
+
+        >>> Write.parse('disk_free value=442221834240,working\ directories="C:\My Documents\Stuff for examples,C:\My Documents" 123')
+        <Write key=disk_free tags=[] fields=[('value', 442221834240), ('working directories', 'C:\\\\My Documents\\\\Stuff for examples,C:\\\\My Documents')] timestamp=123>
+
+        >>> print(Write.parse('foo,foo=2 field_key\\\\\\="string field"'))
+        foo,foo=2 field_key\\\\="string field"
+
+        >>> print(Write.parse('foo,foo=2 field_key="string\\\\" field"'))
+        foo,foo=2 field_key="string\\" field"
+
+        >>> print(Write.parse('foo field0=tag,field1=t,field2=true,field3=True,field4=TRUE'))
+        foo field0="tag",field1=True,field2=True,field3=True,field4=True
+
+        >>> print(Write.parse('foo field1=f,field2=false,field3=False,field4=FALSE,field5=fag'))
+        foo field1=False,field2=False,field3=False,field4=False,field5="fag"
+
+        >>> print(Write.parse('"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\="string field value, only \\\\" need be quoted"'))
+        "measurement\ with\ quotes",tag\ key\ with\ spaces="tag,value,with\\"commas\\"" field_key\\\\="string field value, only \\" need be quoted"
+
+        >>> Write.parse('"measurement\ with\ quotes" foo=1')
+        <Write key="measurement with quotes" tags=[] fields=[('foo', 1)] timestamp=None>
         """
 
         tokval = lambda t: t.value
-        toksval = lambda x: "".join(x)
-        token = lambda type: some(lambda t: t.type == type)
-   
-        space = token('Space') >> tokval
-        comma = token('Comma') >> tokval
-        quote = token('Quote') >> tokval
-        escape_space = token('Escape') + token('Space') >> (lambda x: " ")
-        escape_comma = token('Escape') + token('Comma') >> (lambda x: ",")
-        escape_equal = token('Escape') + token('Equal') >> (lambda x: "=")
-        escape_quote = token('Escape') + token('Quote') >> (lambda x: "\"")
-        escape_escape = token('Escape') + token('Escape') >> (lambda x: "\\")
-        plain_int = token('Int') >> (lambda t: int(tokval(t)))
-        plain_int_text =  token('Int') >> tokval
-        plain_float = token('Float') >> (lambda t: float(tokval(t)))
-        plain_float_text = token('Float') >> tokval
-        plain_bool = some( lambda t: t.type == 'Text' and t.value.lower() in ["t", "true"]) >> (lambda t: True) | \
-                     some( lambda t: t.type == 'Text' and t.value.lower() in ["f", "false"]) >> (lambda t: False)
-        plain_text = token("Text") >> tokval
+        joinval = "".join
+        someToken = lambda type: some(lambda t: t.type == type)
+        true_values = ["t", "true", "True", "TRUE"]
+        false_values = ["f", "false", "False", "FALSE"]
 
-        identifier = many( plain_text | escape_space | escape_comma | escape_escape | plain_int_text | token('Quote') >> tokval ) >> toksval
-        quoted_text = many( escape_escape | escape_quote | plain_text | space | comma | plain_int_text | plain_float_text) >> (lambda x: "".join(x))
-        unquoted_text = many( escape_space | escape_comma | escape_equal | escape_escape | quote | plain_text |  plain_int_text ) >> toksval
-        string_value = ( skip(token('Quote')) + quoted_text + skip(token('Quote')) ) | unquoted_text
+        char = someToken('Char') >> tokval
+        space = someToken('Space') >> tokval
+        comma = someToken('Comma') >> tokval
+        quote = someToken('Quote') >> tokval
+        escape = someToken('Escape') >> tokval
+        equal = someToken('Equal') >> tokval
 
-        kv_value = plain_int | plain_float | plain_bool | string_value
-        kv = string_value + skip(token('Equal')) + kv_value >> (lambda x: (x[0],x[1]))
+        escape_space = skip(escape) + space >> joinval
+        escape_comma = skip(escape) + comma >> joinval
+        escape_equal = skip(escape) + equal >> joinval
+        escape_quote = skip(escape) + quote >> joinval
+        escape_escape = skip(escape) + escape >> joinval
+
+        plain_int_text = someToken('Int') >> tokval
+        plain_int = plain_int_text >> (lambda v: int(v))
+        plain_float_text = someToken('Float') >> tokval
+        plain_float = plain_float_text >> (lambda v: float(v))
+
+        identifier = many(char | escape_space | escape_comma |
+                          escape_escape | plain_int_text | quote) >> joinval
+        quoted_text_ = many(escape_quote | space | plain_int_text |
+                            plain_float_text | char | comma |
+                            escape) >> joinval
+        quoted_text = skip(quote) + quoted_text_ + skip(quote)
+        unquoted_text = many(escape_space | escape_comma |
+                             escape_equal | escape_escape |
+                             plain_int_text | char | quote) >> joinval
+        string_value = quoted_text | unquoted_text >> \
+            (lambda s: s in true_values and True
+             or s in false_values and False
+             or s not in false_values and s)
+
+        kv_value = plain_int | plain_float | string_value
+        kv = string_value + \
+            skip(equal) + kv_value >> (lambda x: (x[0], x[1]))
 
         def setter(obj, propert):
             def r(val):
@@ -167,69 +196,20 @@ class Write(object):
                 return (propert, val)
             return r
 
-        key = identifier
-        tags = many( skip(token('Comma')) + kv) >> (lambda x: x) # (lambda x: [x[0]] + x[1])
-        fields = ( kv + many( skip(token('Comma')) + kv ) ) >> (lambda x: [x[0]] + x[1])
-        timestamp = plain_int
+        tags = many(skip(comma) + kv) >> (lambda x: x)
+        fields = (kv + many(skip(comma) + kv)) >> \
+                 (lambda x: [x[0]] + x[1])
 
         write = Write(None, None, None, None)
-        toplevel = (key >> setter(write, "key")) + \
-                    maybe( tags >> setter(write, "tags") ) + \
-                        ( skip(token('Space')) + (fields >> setter(write, "fields")) ) + \
-                             maybe( skip(token('Space')) + timestamp >> setter(write, "timestamp") ) + \
-                                skip(finished) >> (lambda x: x)
-        try:
-            result = toplevel.parse(Write.tokenize(line))
-        except:
-            pprint(line, stream=sys.stderr)
-            pprint(write, stream=sys.stderr)
-            pprint(Write.tokenize(line), stream=sys.stderr)
-            raise
-        #pprint({line : result}, stream=sys.stderr)
+        toplevel = (identifier >> setter(write, "key")) + \
+            maybe(tags >> setter(write, "tags")) + \
+            (skip(space) + (fields >> setter(write, "fields"))) + \
+            maybe(skip(space) + plain_int >> setter(write, "timestamp")) + \
+            skip(finished) >> (lambda x: x)
+
+        result = toplevel.parse(Write.tokenize(line))
+        #pprint(result)
         return write
-
-        def unescape(string):
-            return re.sub(r'(?<!\\)([\\,=])', '', string)
-
-        def unescape_value(string):
-            if string.startswith("\"") and string.endswith("\""):
-                string = re.sub(r'(?<!\\)(["])', '', string)
-            else:
-                string = unescape(string)
-                if re.match("^[0-9]+$", string):
-                    return int(string)
-                elif re.match("^[0-9]*\.[0-9]*$", string):
-                    return float(string)
-                elif string.lower() in ["t", "true", "f", "false"]:
-                    return string.lower in ["t", "true"]
-                else:
-                    return string
-
-        args = re.split(r"(?<!\\) ", line)
-        key, *tags = re.split(r"(?<!\\),", args[0])
-        key = unescape(key)
-
-        if tags:
-            tags = map(lambda tag: re.split(r"(?<!\\)=", tag), tags)
-            tags = map(lambda tag: (unescape(tag[0]), unescape_value(tag[1])), tags)
-            tags = list(tags)
-        else:
-            tags = None
-
-        if len(args) > 1:
-            fields = re.split(r"(?<!\\),",  args[1])
-            fields = map(lambda field: re.split(r"(?<!\\)=", field), fields)
-            fields = map(lambda field: (unescape(field[0]), unescape_value(field[1])), fields)
-            fields = list(fields)
-        else:
-            fields = None
-
-        if len(args) > 2:
-            timestamp = int(args[2])
-        else:
-            timestamp = None
-
-        return Write(key, tags, fields, timestamp)
 
     def __repr__(self):
         return "<{} key={} tags={} fields={} timestamp={}>".format(
@@ -244,13 +224,12 @@ class Write(object):
                 return str(obj)
             else:
                 obj = str(obj)
-                return "\"" + obj.replace("\"","\\\"") + "\""
-
+                return "\"" + obj.replace("\"", "\\\"") + "\""
 
         def escape_kv(kvlist):
             return ",".join(
-                    map(lambda kv: escape_key(kv[0]) + "=" + escape_value(kv[1]),
-                        kvlist))
+                map(lambda kv: escape_key(kv[0]) + "=" + escape_value(kv[1]),
+                    kvlist))
 
         result = escape_key(self.key)
 
@@ -272,4 +251,3 @@ class Write(object):
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
-
