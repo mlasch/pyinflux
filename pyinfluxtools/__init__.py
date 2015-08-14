@@ -49,7 +49,7 @@ class Write(object):
         ('Equal', (r'=',)),
         ('Quote', (r'"',)),
         ('Escape', (r'\\',)),
-        ('Int', (r'[0-9]+',)),
+        ('Int', (r'[0-9]+(?![0-9\.])',)),
         ('Float', (r'-?(\.[0-9]+)|([0-9]+(\.[0-9]*)?)',)),
         ('Char', (r'.',)),
     ]
@@ -69,6 +69,9 @@ class Write(object):
 
         >>> print(Write.parse('cpu a=1'))
         cpu a=1
+
+        >>> print(Write.parse('yahoo.CHFGBP=X.ask,tag=foobar value=10.2'))
+        yahoo.CHFGBP=X.ask,tag="foobar" value=10.2
 
         >>> Write.parse('cpu,host=serverA,region=us-west foo=bar')
         <Write key=cpu tags=[('host', 'serverA'), ('region', 'us-west')] fields=[('foo', 'bar')] timestamp=None>
@@ -172,7 +175,7 @@ class Write(object):
         plain_float_text = someToken('Float') >> tokval
         plain_float = plain_float_text >> (lambda v: float(v))
 
-        identifier = many(char | escape_space | escape_comma |
+        identifier = many(char | equal | escape_space | escape_comma |
                           escape_escape | plain_int_text | quote) >> joinval
         quoted_text_ = many(escape_quote | space | plain_int_text |
                             plain_float_text | char | comma |
@@ -216,6 +219,9 @@ class Write(object):
             self.__class__.__name__, self.key, self.tags, self.fields, self.timestamp)
 
     def __str__(self):
+        def escape_identifier(string):
+            return re.sub(r'([\\, ])', '\\\\\\1', string)
+
         def escape_key(string):
             return re.sub(r'([\\,= ])', '\\\\\\1', string)
 
@@ -231,7 +237,7 @@ class Write(object):
                 map(lambda kv: escape_key(kv[0]) + "=" + escape_value(kv[1]),
                     kvlist))
 
-        result = escape_key(self.key)
+        result = escape_identifier(self.key)
 
         if self.tags:
             result += ","
