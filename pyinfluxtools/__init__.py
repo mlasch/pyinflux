@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import re
 import sys
+from functools import reduce
 
 from funcparserlib.lexer import make_tokenizer
-from funcparserlib.parser import (some, maybe, many, finished, skip, NoParseError)
+from funcparserlib.parser import (
+    some, maybe, many, finished, skip, NoParseError)
 
 
 class WriteRequest(object):
@@ -22,8 +24,8 @@ class WriteRequest(object):
         >>> lines += ['cpu,host=serverA,region=us-west field1=1,field2=2 1234']
         >>> print("\\n".join(map(str, WriteRequest.parse("\\n".join(lines)))))
         cpu field=123
-        cpu,host="serverA",region="us-west" field1=1,field2=2
-        cpu,host="serverA",region="us-west" field1=1,field2=2 1234
+        cpu,host=serverA,region=us-west field1=1,field2=2
+        cpu,host=serverA,region=us-west field1=1,field2=2 1234
         """
         writes = map(Write.parse, lines.split("\n"))
         return list(writes)
@@ -64,41 +66,38 @@ class Write(object):
         """
         Parse a line from the POST request into a Write object.
 
-        >>> Write.parse('cpu a=1')
+        >>> line='cpu a=1'; Write.parse(line); print(Write.parse(line))
         <Write key=cpu tags=[] fields=[('a', 1)] timestamp=None>
-
-        >>> print(Write.parse('cpu a=1'))
         cpu a=1
 
-        >>> print(Write.parse('yahoo.CHFGBP=X.ask,tag=foobar value=10.2'))
-        yahoo.CHFGBP=X.ask,tag="foobar" value=10.2
+        >>> print(Write.parse('yahoo.CHFGBP\\=X.ask,tag=foobar value=10.2'))
+        yahoo.CHFGBP\=X.ask,tag=foobar value=10.2
 
-        >>> Write.parse('cpu,host=serverA,region=us-west foo=bar')
+        >>> Write.parse('cpu,host=serverA,region=us-west foo="bar"')
         <Write key=cpu tags=[('host', 'serverA'), ('region', 'us-west')] fields=[('foo', 'bar')] timestamp=None>
 
-        >>> print(Write.parse('cpu host=serverA,region=us-west'))
+        >>> print(Write.parse('cpu host="serverA",region="us-west"'))
         cpu host="serverA",region="us-west"
 
-        >>> Write.parse('cpu\\,01 host=serverA,region=us-west')
+        >>> line='cpu\\,01 host="serverA",region="us-west"'; \\
+        ... Write.parse(line); print(Write.parse(line))
         <Write key=cpu,01 tags=[] fields=[('host', 'serverA'), ('region', 'us-west')] timestamp=None>
-
-        >>> print(Write.parse('cpu\,01 host=serverA,region=us-west'))
         cpu\,01 host="serverA",region="us-west"
 
-        >>> Write.parse('cpu host=server\\ A,region=us\\ west')
+        >>> Write.parse('cpu host="server A",region="us west"')
         <Write key=cpu tags=[] fields=[('host', 'server A'), ('region', 'us west')] timestamp=None>
 
-        >>> Write.parse('cpu ho\\=st=server\ A,region=us\ west')
+        >>> line='cpu ho\\=st="server A",region="us west"'; \\
+        ... Write.parse(line); print(Write.parse(line))
         <Write key=cpu tags=[] fields=[('ho=st', 'server A'), ('region', 'us west')] timestamp=None>
-
-        >>> print(Write.parse('cpu ho\=st=server\ A,region=us\ west'))
         cpu ho\=st="server A",region="us west"
 
         >>> print(Write.parse('cpu,ho\=st=server\ A field=123'))
-        cpu,ho\=st="server A" field=123
+        cpu,ho\=st=server\ A field=123
 
-        >>> print(Write.parse('cpu,foo=bar,foo=bar field=123,field=123')) # error: double name is accepted
-        cpu,foo="bar",foo="bar" field=123,field=123
+        # error: double name is accepted
+        >>> print(Write.parse('cpu,foo=bar,foo=bar field=123,field=123'))
+        cpu,foo=bar,foo=bar field=123,field=123
 
         >>> print(Write.parse('cpu field12=12'))
         cpu field12=12
@@ -106,25 +105,22 @@ class Write(object):
         >>> print(Write.parse('cpu field12=12 123123123'))
         cpu field12=12 123123123
 
-        >>> try:
-        ...     print(Write.parse('cpu field12=12 1231abcdef123'))
-        ... except NoParseError:
-        ...     pass
+        >>> try: print(Write.parse('cpu field12=12 1231abcdef123'))
+        ... except NoParseError: pass
 
-        >>> print(Write.parse("cpu,x=3,y=4,z=6 field\ name=\\"HH \\\\\\"World\\",x=asdf\\\\ foo"))
+        >>> print(Write.parse('cpu,x=3,y=4,z=6 field\ name="HH \\\\\\"World",x="asdf foo"'))
         cpu,x=3,y=4,z=6 field\\ name="HH \\"World",x="asdf foo"
 
-        >>> print(Write.parse("cpu,x=3 field\ name=\\"HH \\\\\\"World\\",x=asdf\\\\ foo"))
+        >>> print(Write.parse("cpu,x=3 field\ name=\\"HH \\\\\\"World\\",x=\\"asdf foo\\""))
         cpu,x=3 field\\ name="HH \\"World",x="asdf foo"
 
-        >>> print(Write.parse("cpu foo=bar 12345"))
+        >>> print(Write.parse("cpu foo=\\"bar\\" 12345"))
         cpu foo="bar" 12345
 
-        >>> print(Write.parse('"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with field_key\\\\\\="string field value, only \\\\" need be quoted"'))
-        "measurement\ with\ quotes",tag\ key\ with\ spaces="tag,value,with" field_key\\\\="string field value, only \\" need be quoted"
-
-        >>> Write.parse('"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\\\="string field value, only \\\\" need be quoted"')
+        >>> line='"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\="string field value, only \\\\" need be quoted"'; \\
+        ... Write.parse(line); print(Write.parse(line))
         <Write key="measurement with quotes" tags=[('tag key with spaces', 'tag,value,with"commas"')] fields=[('field_key\\\\', 'string field value, only " need be quoted')] timestamp=None>
+        "measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\="string field value, only \\\" need be quoted"
 
         >>> Write.parse('disk_free value=442221834240,working\ directories="C:\My Documents\Stuff for examples,C:\My Documents"')
         <Write key=disk_free tags=[] fields=[('value', 442221834240), ('working directories', 'C:\\\\My Documents\\\\Stuff for examples,C:\\\\My Documents')] timestamp=None>
@@ -132,30 +128,51 @@ class Write(object):
         >>> Write.parse('disk_free value=442221834240,working\ directories="C:\My Documents\Stuff for examples,C:\My Documents" 123')
         <Write key=disk_free tags=[] fields=[('value', 442221834240), ('working directories', 'C:\\\\My Documents\\\\Stuff for examples,C:\\\\My Documents')] timestamp=123>
 
+        >>> print(Write.parse('foo,foo=2 "field key with space"="string field"'))
+        foo,foo=2 field\ key\ with\ space="string field"
+
         >>> print(Write.parse('foo,foo=2 field_key\\\\\\="string field"'))
         foo,foo=2 field_key\\\\="string field"
 
         >>> print(Write.parse('foo,foo=2 field_key="string\\\\" field"'))
         foo,foo=2 field_key="string\\" field"
 
-        >>> print(Write.parse('foo field0=tag,field1=t,field2=true,field3=True,field4=TRUE'))
+        >>> line='foo field0="tag",field1=t,field2=true,field3=True,field4=TRUE'; \\
+        ... Write.parse(line); print(Write.parse(line))
+        <Write key=foo tags=[] fields=[('field0', 'tag'), ('field1', True), ('field2', True), ('field3', True), ('field4', True)] timestamp=None>
         foo field0="tag",field1=True,field2=True,field3=True,field4=True
 
-        >>> print(Write.parse('foo field1=f,field2=false,field3=False,field4=FALSE,field5=fag'))
+        >>> line='foo field1=f,field2=false,field3=False,field4=FALSE,field5="fag"'; \\
+        ... Write.parse(line); print(Write.parse(line))
+        <Write key=foo tags=[] fields=[('field1', False), ('field2', False), ('field3', False), ('field4', False), ('field5', 'fag')] timestamp=None>
         foo field1=False,field2=False,field3=False,field4=False,field5="fag"
 
-        >>> print(Write.parse('"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\="string field value, only \\\\" need be quoted"'))
-        "measurement\ with\ quotes",tag\ key\ with\ spaces="tag,value,with\\"commas\\"" field_key\\\\="string field value, only \\" need be quoted"
+        >>> line='"measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\\\="string field value, only \\\\" need be quoted"'; \\
+        ... Write.parse(line); print(Write.parse(line))
+        <Write key="measurement with quotes" tags=[('tag key with spaces', 'tag,value,with"commas"')] fields=[('field_key\\\\', 'string field value, only " need be quoted')] timestamp=None>
+        "measurement\ with\ quotes",tag\ key\ with\ spaces=tag\,value\,with"commas" field_key\\\\="string field value, only \\" need be quoted"
 
         >>> Write.parse('"measurement\ with\ quotes" foo=1')
         <Write key="measurement with quotes" tags=[] fields=[('foo', 1)] timestamp=None>
+
+        >>> print(Write.parse('K.5S,Ccpvo="eSLyE" value="7F\\\\\\\\\\\\""'))
+        K.5S,Ccpvo="eSLyE" value="7F\\\\\\\\\\\""
+
+        >>> print(Write.parse('K.5S,Ccpvo=a\\ b value=1'))
+        K.5S,Ccpvo=a\\ b value=1
+
+        >>> print(Write('test', [('a','b')], [('value','asd\\\\')]))
+        test,a=b value="asd\\\\"
         """
 
         tokval = lambda t: t.value
         joinval = "".join
         someToken = lambda type: some(lambda t: t.type == type)
-        true_values = ["t", "true", "True", "TRUE"]
-        false_values = ["f", "false", "False", "FALSE"]
+        someCharValue = lambda string: \
+            reduce(lambda a, b: a + b,
+                   map(lambda char:
+                       some(lambda t: t.value == char) >> tokval,
+                       string)) >> joinval
 
         char = someToken('Char') >> tokval
         space = someToken('Space') >> tokval
@@ -163,6 +180,10 @@ class Write(object):
         quote = someToken('Quote') >> tokval
         escape = someToken('Escape') >> tokval
         equal = someToken('Equal') >> tokval
+        true_value = (someCharValue("true") | someCharValue("t") |
+                      someCharValue("True") | someCharValue("TRUE") | someCharValue("T"))
+        false_value = (someCharValue("false") | someCharValue("f") |
+                       someCharValue("False") | someCharValue("FALSE") | someCharValue("F"))
 
         escape_space = skip(escape) + space >> joinval
         escape_comma = skip(escape) + comma >> joinval
@@ -175,7 +196,8 @@ class Write(object):
         plain_float_text = someToken('Float') >> tokval
         plain_float = plain_float_text >> (lambda v: float(v))
 
-        identifier = many(char | equal | escape_space | escape_comma |
+        identifier = many(char | plain_float_text | plain_int_text |
+                          escape_space | escape_comma | escape_equal |
                           escape_escape | plain_int_text | quote) >> joinval
         quoted_text_ = many(escape_quote | space | plain_int_text |
                             plain_float_text | char | comma |
@@ -184,14 +206,14 @@ class Write(object):
         unquoted_text = many(escape_space | escape_comma |
                              escape_equal | escape_escape |
                              plain_int_text | char | quote) >> joinval
-        string_value = quoted_text | unquoted_text >> \
-            (lambda s: s in true_values and True
-             or s in false_values and False
-             or s not in false_values and s)
+        boolean_value = (true_value >> (lambda s: True)
+                         | false_value >> (lambda s: False))
 
-        kv_value = plain_int | plain_float | string_value
-        kv = string_value + \
-            skip(equal) + kv_value >> (lambda x: (x[0], x[1]))
+        kv_value = plain_int | plain_float | quoted_text | boolean_value
+        kv = (quoted_text | unquoted_text) + skip(equal) + kv_value >> \
+            (lambda x: (x[0], x[1]))
+
+        tag = identifier + skip(equal) + identifier >> (lambda x: (x[0], x[1]))
 
         def setter(obj, propert):
             def r(val):
@@ -199,7 +221,7 @@ class Write(object):
                 return (propert, val)
             return r
 
-        tags = many(skip(comma) + kv) >> (lambda x: x)
+        tags = many(skip(comma) + tag) >> (lambda x: x)
         fields = (kv + many(skip(comma) + kv)) >> \
                  (lambda x: [x[0]] + x[1])
 
@@ -211,41 +233,53 @@ class Write(object):
             skip(finished) >> (lambda x: x)
 
         result = toplevel.parse(Write.tokenize(line))
-        #pprint(result)
+        # pprint(result)
         return write
 
     def __repr__(self):
         return "<{} key={} tags={} fields={} timestamp={}>".format(
             self.__class__.__name__, self.key, self.tags, self.fields, self.timestamp)
 
-    def __str__(self):
-        def escape_identifier(string):
-            return re.sub(r'([\\, ])', '\\\\\\1', string)
+    @staticmethod
+    def escape_identifier(string):
+        return re.sub(r'([\\,= ])', '\\\\\\1', string)
 
+    @staticmethod
+    def escape_tags(taglist):
+        return ",".join(map(lambda kv:
+                            (Write.escape_identifier(kv[0])
+                             + "=" + Write.escape_identifier(kv[1])),
+                            taglist))
+
+    @staticmethod
+    def escape_value(obj):
+        if (isinstance(obj, float)
+                or isinstance(obj, int)
+                or isinstance(obj, bool)):
+            return str(obj)
+        else:
+            obj = str(obj)
+            return "\"" + obj.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    @staticmethod
+    def escape_fields(kvlist):
         def escape_key(string):
-            return re.sub(r'([\\,= ])', '\\\\\\1', string)
+            return re.sub(r'(["\\,= ])', '\\\\\\1', string)
 
-        def escape_value(obj):
-            if isinstance(obj, float) or isinstance(obj, int) or isinstance(obj, bool):
-                return str(obj)
-            else:
-                obj = str(obj)
-                return "\"" + obj.replace("\"", "\\\"") + "\""
+        return ",".join(
+            map(lambda kv: escape_key(kv[0]) + "=" + Write.escape_value(kv[1]),
+                kvlist))
 
-        def escape_kv(kvlist):
-            return ",".join(
-                map(lambda kv: escape_key(kv[0]) + "=" + escape_value(kv[1]),
-                    kvlist))
-
-        result = escape_identifier(self.key)
+    def __str__(self):
+        result = self.escape_identifier(self.key)
 
         if self.tags:
             result += ","
-            result += escape_kv(self.tags)
+            result += self.escape_tags(self.tags)
 
         if self.fields:
             result += " "
-            result += escape_kv(self.fields)
+            result += self.escape_fields(self.fields)
 
         if self.timestamp:
             result += " "
