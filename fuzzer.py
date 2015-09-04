@@ -35,55 +35,92 @@ class Generator:
 
 
 class Filter:
-    regex = lambda r: re.compile(r).match
-    alpha = re.compile("^[a-z]+$").match
+    regex = lambda regex: re.compile(regex).match
     pass_all = lambda _: True
-    @staticmethod
-    def except_chars(chars):
-        regex = re.compile("^[^"+chars+"]*$")
-        return regex.match
-            
 
 
 def generate(length_min, length_max, filter, generator):
     length = random.randint(length_min, length_max)
     while True:
-        text = functools.reduce(lambda a,b: a+b,map(generator, range(length)))
+        text = functools.reduce(
+            lambda a, b: a + b, map(generator, range(length)))
         if filter(text):
             return text
 
 
 def run(*a):
     while True:
-        test1 = generate(3, 6, 
-                Filter.regex("^[^\{\"]"), # influxdb doesn't allow measurements starting with { or "
-                Generator.printable)
-        test2 = generate(3, 6, Filter.pass_all, Generator.printable)
-        test3 = generate(3, 6, Filter.pass_all, Generator.printable)
-        test4 = generate(3, 6, Filter.pass_all, Generator.printable)
-        w = Write(test1,  # key
-                  {test2: test3},  # tags
-                  {"value": test4})  # values
-        line = str(w)
-        print(line)
-        try:
-            r = requests.post(write_url, line)
-            assert r.status_code == 204, \
-                "Data:\nline={}\nwrite={}\nr.status_code={}\nr.content={}".format(
-                    line, repr(w), r.status_code, r.text)
-        except Exception as e:
-            print(e)
-            assert False, "Data\nline={}\nwrite={}".format(str(w), repr(w))
+        test()
 
-        measurement = Write.escape_value(w.key)
-        query = "SELECT * FROM {measurement} WHERE time >= now() - 1s".format(**locals())
+
+def test():
+    # influxdb doesn't allow measurements starting with {
+    noBrace = Filter.regex("^[^\\{]")
+    noHash = Filter.regex("^[^#]")  # hash sign starts a comment
+    # TODO: only allow valid escape sequences
+    noEscape = Filter.regex("^[^\\\\]+$")
+
+    def generateKey(min=3,max=6):
+        return generate(min, max, lambda text:
+                        noBrace(text) and noHash(text) and noEscape(text),
+                        Generator.printable)
+
+    def generateTags(min, max):
+        def generateTagPairs():
+            for i in range(random.randint(min, max)):
+                yield (generateKey(), generateKey())
+
+        return dict(tuple(generateTagPairs()))
+
+    def generateFields(min, max):
+        def generateFieldPairs():
+            for i in range(random.randint(min,max)):
+                yield (generateKey(), generate(3, 6, lambda _: True, Generator.printable))
+        return dict(tuple(generateFieldPairs()))
+
+    w = Write(generateKey(8,12),  # key
+              generateTags(1, 4),  # tags
+              generateFields(1, 4))  # fields
+    line = str(w)
+    print(line)
+    try:
+        r = requests.post(write_url, line)
+        INFO = ("Data:\nline={}\nwrite={}\nr.status_code={}\n" +
+                "r.content={}").format(line, repr(w), r.status_code, r.text)
+        assert r.status_code == 204, INFO
+    except Exception as e:
+        print(e)
+        assert False, "Data\nline={}\nwrite={}".format(str(w), repr(w))
+
+    measurement = Write.escape_value(w.key)
+    query = """\
+SELECT * 
+FROM {measurement} 
+WHERE time >= now() - 2s""".format(**locals())
+    result = []
+    try:
         result = list(client.query(query))
-        DEBUGINFO = "DEBUG:\nquery={query}\nresult={result}\nline={line}".format(**locals())
-        assert len(result) == 1, DEBUGINFO
-        assert result[0][0]['value'] == test4, DEBUGINFO + "\nvalue=" + result[0][0]['value'] + "\ntest4=" + test4
+    except Exception as e:
+        print(e)
+    wrepr=repr(w)
+    DEBUGINFO = ("DEBUG:\nquery={query}\nwrite={wrepr}\n" +
+                 "result={result}\nline={line}").format(**locals())
+    assert len(result) == 1, DEBUGINFO
+    assert len(result[0][0]) == len(w.tags) + len(w.fields) + 1, DEBUGINFO # + time
+
+    # assert fields
+    for (key, value) in w.fields:
+        assert key in result[0][0], DEBUGINFO
+        assert result[0][0][key] == value, DEBUGINFO + \
+            "\n"+ key +"=" + result[0][0][key] + "=" + value
+
+    # assert tags
+    for (tagKey, tagValue) in w.tags:
+        assert tagKey in result[0][0], DEBUGINFO
+        assert result[0][0][tagKey] == tagValue, DEBUGINFO
 
 
-N_PROC = 1
+N_PROC = 4
 with Pool(processes=N_PROC) as pool:
     try:
         for res in pool.imap_unordered(run, [None] * N_PROC):
