@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-from doctest import testmod
-from pyinflux import client, parser
+import unittest
+from pyinflux import client, parser, test
 
 if __name__ == '__main__':
-    testmod(m=client)
-    testmod(m=parser)
+    unittest.TextTestRunner().run(unittest.findTestCases(test))

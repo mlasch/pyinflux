@@ -14,7 +14,7 @@ value_generator = itertools.count()
 
 def test(number):
     for value in value_generator:
-        if value + 1 % 500 == 0:
+        if (value + 1) % 500 == 0:
             print("thread {} at {}".format(number, value))
         expected = "value{value}".format(value=value)
         line = Line('series' + str(value),

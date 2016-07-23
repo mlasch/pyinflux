@@ -32,13 +32,16 @@ class Line(object):
 
     @staticmethod
     def escape_value(obj):
+        DBLQ='"'
         if (isinstance(obj, float) or
                 isinstance(obj, int) or
                 isinstance(obj, bool)):
             return str(obj)
         else:
             obj = str(obj)
-            return "\"" + obj.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            obj = obj.replace('\\', '\\\\')
+            obj = obj.replace(DBLQ, '\\"')
+            return DBLQ + obj + DBLQ
 
     @staticmethod
     def escape_fields(kvlist):
@@ -50,18 +53,10 @@ class Line(object):
                 kvlist))
 
     def __repr__(self):
-        """
-        >>> print(repr(Line('test', [('a','b')], [('value','asd\\\\')])))
-        <Line key=test tags=[('a', 'b')] fields=[('value', 'asd\\\\')] timestamp=None>
-        """
         return "<{} key={} tags={} fields={} timestamp={}>".format(
             self.__class__.__name__, self.key, self.tags, self.fields, self.timestamp)
 
     def __str__(self):
-        """
-        >>> print(Line('test', [('a','b')], [('value','asd\\\\')]))
-        test,a=b value="asd\\\\"
-        """
         result = self.escape_identifier(self.key)
 
         if self.tags:
@@ -138,6 +133,9 @@ class Influx:
 
 
 class InfluxDB(Influx):
+    """
+    like Influx but with a predefined database
+    """
     def __init__(self, db: str, host: str, port: int = 8086, username: str = None, password: str = None):
         super().__init__(host, port, username, password)
         self._db = db
