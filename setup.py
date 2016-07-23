@@ -1,24 +1,23 @@
-#!/usr/bin/env python
-
+#!/usr/bin/env python3
 from distutils.core import setup
 
-setup(name='pyinfluxtools',
-    version='0.1',
-    description='Python classes to work with influxdb',
-    author='Yves Fischer',
-    author_email='yvesf+github@xapek.org',
-    license="MIT",
-    packages = ['pyinfluxtools'],
-#    url='https://github.com/',
-#    scripts=[],
-    install_requires=['funcparserlib==0.3.6'],
-    classifiers = [
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3",
-        "Development Status :: 3 - Alpha",
-        "Intended Audience :: Developers",
-        "Operating System :: OS Independent",
-        "License :: OSI Approved :: MIT License",
-    ]
-)
+version = '0.1'
 
+setup(name='pyinflux',
+      version=version,
+      description='Python classes to work with influxdb',
+      author='Yves Fischer',
+      author_email='yvesf+git@xapek.org',
+      license="MIT",
+      py_modules=['pyinflux'],
+      #    url='https://github.com/',
+      install_requires=[],
+      extras_require={'parser': ['funcparserlib==0.3.6']},
+      classifiers=[
+          "Programming Language :: Python",
+          "Programming Language :: Python :: 3",
+          "Development Status :: 3 - Alpha",
+          "Intended Audience :: Developers",
+          "Operating System :: OS Independent",
+          "License :: OSI Approved :: MIT License",
+      ])
