@@ -2,8 +2,8 @@ from functools import reduce
 
 try:
     from funcparserlib.lexer import make_tokenizer
-    from funcparserlib.parser import (
-        some, maybe, many, finished, skip, NoParseError)
+    from funcparserlib.parser import (NoParseError, State, finished, many,
+                                      maybe, skip, some)
 except ImportError as e:
     print("Missing funcparserlib library. You need to install the 'parser' extra dependency set.")
     raise e
@@ -67,7 +67,7 @@ class LineParser:
         toplevel = identifier >> (lambda x: x)
         parsed =  toplevel.parse(LineTokenizer.tokenize(line))
         if len(parsed) == 0:
-            raise NoParseError('parsed nothing')
+            raise NoParseError('parsed nothing', State(0, 0))
         else:
             return parsed
 
